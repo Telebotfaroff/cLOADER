@@ -1,69 +1,31 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { Activity, CheckCircle2, CircleAlert, Clock3, Copy, Download, FileVideo, Gauge, Link2, ListTodo, Play, Settings, Upload, X } from 'lucide-react';
+import { Activity, CheckCircle2, CircleAlert, Clock3, Copy, Download, FileVideo, Gauge, Link2, ListTodo, Play, Settings, Upload } from 'lucide-react';
 import './styles.css';
 
-type Provider = { name: string; kind: 'file' | 'video'; enabled: boolean };
-type Task = { id: number; name: string; url: string; progress: number; speed: string; status: string; providers: { name: string; progress: number; status: string; link?: string }[] };
-
+type Provider = { id: string; name: string; kind: 'file' | 'video'; enabled: boolean };
+type UploadState = { provider: string; progress: number; status: string; link?: string; error?: string };
+type Task = { id: string; name: string; url: string; progress: number; speed: string; status: string; providers: UploadState[] };
+const API = import.meta.env.VITE_API_BASE || '';
 const initialProviders: Provider[] = [
-  { name: 'GoFile', kind: 'file', enabled: true },
-  { name: 'Pixeldrain', kind: 'file', enabled: true },
-  { name: 'Streamtape', kind: 'video', enabled: false },
-  { name: 'Vidshare', kind: 'video', enabled: false },
-  { name: 'FileMoon', kind: 'video', enabled: false },
+  { id: 'gofile', name: 'GoFile', kind: 'file', enabled: true }, { id: 'pixeldrain', name: 'Pixeldrain', kind: 'file', enabled: true },
+  { id: 'streamtape', name: 'Streamtape', kind: 'video', enabled: false }, { id: 'vidshare', name: 'Vidshare', kind: 'video', enabled: false }, { id: 'filemoon', name: 'FileMoon', kind: 'video', enabled: false },
 ];
-
-const demoTasks: Task[] = [
-  { id: 1, name: 'sample-video-1080p.mp4', url: 'https://example.com/sample.mp4', progress: 68, speed: '8.4 MB/s', status: 'Uploading', providers: [{ name: 'GoFile', progress: 82, status: 'Uploading' }, { name: 'Pixeldrain', progress: 100, status: 'Completed', link: 'https://pixeldrain.example/abc123' }, { name: 'Streamtape', progress: 0, status: 'Waiting' }] },
-];
-
 function App() {
-  const [url, setUrl] = React.useState('');
-  const [filename, setFilename] = React.useState('');
-  const [providers, setProviders] = React.useState(initialProviders);
-  const [tasks, setTasks] = React.useState(demoTasks);
-  const [page, setPage] = React.useState('Dashboard');
-
-  const toggleProvider = (name: string) => setProviders(p => p.map(x => x.name === name ? { ...x, enabled: !x.enabled } : x));
-  const addTask = () => {
-    if (!url.trim()) return;
-    const selected = providers.filter(p => p.enabled).map(p => ({ name: p.name, progress: 0, status: 'Waiting' }));
-    setTasks(t => [{ id: Date.now(), name: filename.trim() || 'Detecting filename…', url: url.trim(), progress: 0, speed: '0 KB/s', status: 'Queued', providers: selected }, ...t]);
-    setUrl(''); setFilename('');
-  };
-  const copy = async (text: string) => { try { await navigator.clipboard.writeText(text); } catch {} };
-
-  return <div className="app">
-    <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">c</div><div><b>cLOADER</b><span>Download & Upload</span></div></div>
-      <nav>{['Dashboard','Queue','History','Providers','Settings'].map(item => <button key={item} className={page === item ? 'nav active' : 'nav'} onClick={() => setPage(item)}>{item === 'Dashboard' ? <Gauge/> : item === 'Queue' ? <ListTodo/> : item === 'History' ? <Clock3/> : item === 'Providers' ? <Upload/> : <Settings/>}{item}</button>)}</nav>
-      <div className="server"><span className="dot"/> Core online</div>
-    </aside>
-    <main>
-      <header><div><div className="eyebrow">PERSONAL TRANSFER MANAGER</div><h1>{page}</h1></div><div className="header-status"><Activity size={16}/> Live</div></header>
-      {page === 'Dashboard' && <>
-        <section className="stats"><Stat icon={<Download/>} label="Downloads" value="1"/><Stat icon={<Upload/>} label="Uploads" value="2"/><Stat icon={<ListTodo/>} label="Queued" value="4"/><Stat icon={<CheckCircle2/>} label="Completed" value="127"/></section>
-        <section className="grid">
-          <div className="panel add"><div className="panel-title"><div><h2>Add download</h2><p>Paste a direct file or supported media URL.</p></div><Link2/></div>
-            <label>Source URL</label><div className="input-wrap"><Link2 size={18}/><input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://example.com/video.mp4"/></div>
-            <label>Custom filename <span>optional</span></label><div className="input-wrap"><FileVideo size={18}/><input value={filename} onChange={e=>setFilename(e.target.value)} placeholder="Leave empty to detect automatically"/></div>
-            <label>Upload to</label><div className="providers">{providers.map(p => <button key={p.name} onClick={()=>toggleProvider(p.name)} className={p.enabled ? 'provider selected' : 'provider'}><span className="check">{p.enabled ? '✓' : ''}</span><span>{p.name}</span><small>{p.kind}</small></button>)}</div>
-            <button className="primary" onClick={addTask}><Play size={17} fill="currentColor"/> Add to queue</button>
-          </div>
-          <div className="panel activity-panel"><div className="panel-title"><div><h2>Live activity</h2><p>Real-time task progress</p></div><span className="live-dot">●</span></div>{tasks.slice(0,3).map(t=><TaskCard key={t.id} task={t} copy={copy}/>)}{tasks.length===0 && <Empty/>}</div>
-        </section>
-      </>}
-      {page === 'Queue' && <section className="panel full"><div className="panel-title"><div><h2>Task queue</h2><p>Manage active and pending transfers.</p></div></div>{tasks.map(t=><TaskCard key={t.id} task={t} copy={copy}/>)}</section>}
-      {page === 'History' && <section className="panel full"><Empty title="No completed history yet" text="Completed transfers will appear here."/></section>}
-      {page === 'Providers' && <section className="panel full"><div className="panel-title"><div><h2>Providers</h2><p>Enable providers that should receive each upload.</p></div></div><div className="provider-list">{providers.map(p=><div className="provider-row" key={p.name}><div><b>{p.name}</b><span>{p.kind === 'file' ? 'File host' : 'Video host'}</span></div><button className={p.enabled?'switch on':'switch'} onClick={()=>toggleProvider(p.name)}><i/></button></div>)}</div></section>}
-      {page === 'Settings' && <section className="panel full"><div className="panel-title"><div><h2>Settings</h2><p>Core preferences will be connected in a later step.</p></div></div><div className="setting"><b>Automatic cleanup</b><span>Delete the temporary file after all selected uploads succeed.</span><div className="switch on"><i/></div></div><div className="setting"><b>Concurrent downloads</b><span>Recommended for a small server.</span><strong>1</strong></div><div className="setting"><b>Concurrent uploads</b><span>Independent from download concurrency.</span><strong>2</strong></div></section>}
-    </main>
-  </div>;
+  const [url,setUrl]=React.useState(''),[filename,setFilename]=React.useState(''),[providers,setProviders]=React.useState(initialProviders),[tasks,setTasks]=React.useState<Task[]>([]),[page,setPage]=React.useState('Dashboard'),[error,setError]=React.useState('');
+  const refresh=React.useCallback(async()=>{try{const r=await fetch(`${API}/api/tasks`);if(!r.ok)throw Error('Unable to load tasks');setTasks((await r.json()).map(normalizeTask));}catch(e){setError(e instanceof Error?e.message:'Backend unavailable');}},[]);
+  React.useEffect(()=>{refresh();},[refresh]);
+  React.useEffect(()=>{const protocol=location.protocol==='https:'?'wss:':'ws:';const base=API?new URL(API,location.origin):location;const ws=new WebSocket(`${protocol}//${base.host}${base.pathname.replace(/\/$/,'')}/ws`);ws.onmessage=e=>{const ev=JSON.parse(e.data);setTasks(ts=>ts.map(t=>t.id===ev.task_id?applyEvent(t,ev):t));};ws.onerror=()=>setError('Live connection unavailable; polling remains available.');return()=>ws.close();},[]);
+  const toggle=(id:string)=>setProviders(ps=>ps.map(p=>p.id===id?{...p,enabled:!p.enabled}:p));
+  const addTask=async()=>{setError('');if(!url.trim())return setError('Enter a source URL.');const selected=providers.filter(p=>p.enabled).map(p=>p.id);if(!selected.length)return setError('Select at least one provider.');try{const r=await fetch(`${API}/api/tasks`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url.trim(),providers:selected,filename:filename.trim()||null})});const data=await r.json();if(!r.ok)throw Error(data.detail||'Could not create task');setTasks(ts=>[normalizeTask(data),...ts.filter(t=>t.id!==data.id)]);setUrl('');setFilename('');}catch(e){setError(e instanceof Error?e.message:'Request failed');}};
+  const cancel=async(id:string)=>{await fetch(`${API}/api/tasks/${id}`,{method:'DELETE'});await refresh()};
+  const copy=async(s:string)=>{try{await navigator.clipboard.writeText(s)}catch{}};
+  return <div className="app"><aside className="sidebar"><div className="brand"><div className="brand-mark">c</div><div><b>cLOADER</b><span>Download & Upload</span></div></div><nav>{['Dashboard','Queue','History','Providers','Settings'].map(item=><button key={item} className={page===item?'nav active':'nav'} onClick={()=>setPage(item)}>{item==='Dashboard'?<Gauge/>:item==='Queue'?<ListTodo/>:item==='History'?<Clock3/>:item==='Providers'?<Upload/>:<Settings/>}{item}</button>)}</nav><div className="server"><span className="dot"/> Core online</div></aside><main><header><div><div className="eyebrow">PERSONAL TRANSFER MANAGER</div><h1>{page}</h1></div><div className="header-status"><Activity size={16}/> Live</div></header>{error&&<div className="error"><CircleAlert size={16}/>{error}</div>}{page==='Dashboard'&&<><section className="stats"><Stat icon={<Download/>} label="Downloads" value={String(tasks.filter(t=>t.status==='downloading').length)}/><Stat icon={<Upload/>} label="Uploads" value={String(tasks.filter(t=>t.status==='uploading').length)}/><Stat icon={<ListTodo/>} label="Queued" value={String(tasks.filter(t=>['queued','downloading','downloaded'].includes(t.status)).length)}/><Stat icon={<CheckCircle2/>} label="Completed" value={String(tasks.filter(t=>t.status==='completed').length)}/></section><section className="grid"><div className="panel add"><div className="panel-title"><div><h2>Add download</h2><p>Paste a direct file or supported media URL.</p></div><Link2/></div><label>Source URL</label><div className="input-wrap"><Link2 size={18}/><input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://example.com/video.mp4"/></div><label>Custom filename <span>optional</span></label><div className="input-wrap"><FileVideo size={18}/><input value={filename} onChange={e=>setFilename(e.target.value)} placeholder="Leave empty to detect automatically"/></div><label>Upload to</label><div className="providers">{providers.map(p=><button key={p.id} onClick={()=>toggle(p.id)} className={p.enabled?'provider selected':'provider'}><span className="check">{p.enabled?'✓':''}</span><span>{p.name}</span><small>{p.kind}</small></button>)}</div><button className="primary" onClick={addTask}><Play size={17} fill="currentColor"/> Add to queue</button></div><div className="panel activity-panel"><div className="panel-title"><div><h2>Live activity</h2><p>Real-time task progress</p></div><span className="live-dot">●</span></div>{tasks.slice(0,3).map(t=><TaskCard key={t.id} task={t} copy={copy} cancel={cancel}/>)}{!tasks.length&&<Empty/>}</div></section></>}{page==='Queue'&&<section className="panel full"><div className="panel-title"><div><h2>Task queue</h2><p>Manage active and pending transfers.</p></div></div>{tasks.filter(t=>t.status!=='completed').map(t=><TaskCard key={t.id} task={t} copy={copy} cancel={cancel}/>)}</section>}{page==='History'&&<section className="panel full">{tasks.filter(t=>t.status==='completed').map(t=><TaskCard key={t.id} task={t} copy={copy} cancel={cancel}/>)}{!tasks.some(t=>t.status==='completed')&&<Empty title="No completed history yet" text="Completed transfers will appear here."/>}</section>}{page==='Providers'&&<section className="panel full"><div className="panel-title"><div><h2>Providers</h2><p>Enable providers that should receive each upload.</p></div></div><div className="provider-list">{providers.map(p=><div className="provider-row" key={p.id}><div><b>{p.name}</b><span>{p.kind==='file'?'File host':'Video host'}</span></div><button className={p.enabled?'switch on':'switch'} onClick={()=>toggle(p.id)}><i/></button></div>)}</div></section>}{page==='Settings'&&<section className="panel full"><div className="panel-title"><div><h2>Settings</h2><p>Core transfer preferences.</p></div></div><div className="setting"><b>Automatic cleanup</b><span>Delete the temporary file after all selected uploads succeed.</span><div className="switch on"><i/></div></div><div className="setting"><b>Concurrent downloads</b><span>Recommended for a small server.</span><strong>1</strong></div><div className="setting"><b>Concurrent uploads</b><span>Independent from download concurrency.</span><strong>2</strong></div></section>}</main></div>;
 }
-
-function Stat({icon,label,value}:{icon:React.ReactNode,label:string,value:string}) { return <div className="stat"><div className="stat-icon">{icon}</div><div><span>{label}</span><strong>{value}</strong></div></div> }
-function TaskCard({task,copy}:{task:Task,copy:(s:string)=>void}) { return <article className="task"><div className="task-head"><div className="task-file"><div className="file-icon"><FileVideo/></div><div><b>{task.name}</b><span>{task.status} · {task.speed}</span></div></div><span className="badge">{task.progress}%</span></div><div className="progress"><i style={{width:`${task.progress}%`}}/></div><div className="task-meta"><span><Download size={14}/> {task.speed}</span><span><Gauge size={14}/> {task.progress}%</span><span>{task.status}</span></div><div className="uploads">{task.providers.map(p=><div className="upload-row" key={p.name}><div className="upload-name"><span className={p.status==='Completed'?'success-dot':'mini-dot'}/><b>{p.name}</b></div><div className="mini-progress"><i style={{width:`${p.progress}%`}}/></div><span>{p.status === 'Completed' && p.link ? <button className="link-btn" onClick={()=>copy(p.link)}><Copy size={14}/> Copy</button> : p.status === 'Uploading' ? `${p.progress}%` : p.status}</span></div>)}</div></article> }
-function Empty({title='Nothing here yet',text='Add a URL to create your first task.'}:{title?:string,text?:string}) { return <div className="empty"><CircleAlert/><h3>{title}</h3><p>{text}</p></div> }
-
+function normalizeTask(t:any):Task{return{id:String(t.id),name:t.filename||'Detecting filename…',url:t.url,progress:Number(t.progress||0),speed:formatSpeed(Number(t.speed||0)),status:String(t.status||'queued').toLowerCase(),providers:(t.uploads||[]).map((u:any)=>({provider:u.provider,progress:Number(u.progress||0),status:String(u.status||'pending').toLowerCase(),link:u.url,error:u.error}))};}
+function formatSpeed(bytes:number){if(!bytes)return'0 B/s';const units=['B/s','KB/s','MB/s','GB/s'];let n=bytes,i=0;while(n>=1024&&i<3){n/=1024;i++;}return`${n.toFixed(i?1:0)} ${units[i]}`;}
+function applyEvent(t:Task,e:any):Task{const d=e.data||{};switch(e.type){case'download.started':return{...t,status:'downloading'};case'download.progress':return{...t,status:'downloading',progress:Number(d.progress||0),speed:formatSpeed(Number(d.speed||0))};case'download.completed':return{...t,status:'downloaded',progress:100};case'upload.started':return{...t,status:'uploading',providers:t.providers.some(p=>p.provider===d.provider)?t.providers:t.providers.concat({provider:d.provider,progress:0,status:'uploading'})};case'upload.progress':return{...t,status:'uploading',providers:t.providers.map(p=>p.provider===d.provider?{...p,progress:Number(d.progress||0),status:'uploading'}:p)};case'upload.completed':return{...t,providers:t.providers.map(p=>p.provider===d.provider?{...p,progress:100,status:'completed',link:d.url}:p)};case'upload.failed':return{...t,providers:t.providers.map(p=>p.provider===d.provider?{...p,status:d.retrying?'retrying':'failed',error:d.error}:p)};case'task.completed':return{...t,status:'completed',progress:100};case'task.failed':return{...t,status:'failed'};default:return t;}}
+function Stat({icon,label,value}:{icon:React.ReactNode,label:string,value:string}){return <div className="stat"><div className="stat-icon">{icon}</div><div><span>{label}</span><strong>{value}</strong></div></div>}
+function TaskCard({task,copy,cancel}:{task:Task,copy:(s:string)=>void,cancel:(id:string)=>void}){return <article className="task"><div className="task-head"><div className="task-file"><div className="file-icon"><FileVideo/></div><div><b>{task.name}</b><span>{task.status} · {task.speed}</span></div></div><span className="badge">{Math.round(task.progress)}%</span></div><div className="progress"><i style={{width:`${Math.min(100,Math.max(0,task.progress))}%`}}/></div><div className="task-meta"><span><Download size={14}/> {task.speed}</span><span><Gauge size={14}/> {Math.round(task.progress)}%</span><span>{task.status}</span>{!['completed','failed','cancelled'].includes(task.status)&&<button className="link-btn" onClick={()=>cancel(task.id)}>Cancel</button>}</div><div className="uploads">{task.providers.map(p=><div className="upload-row" key={p.provider}><div className="upload-name"><span className={p.status==='completed'?'success-dot':'mini-dot'}/><b>{p.provider}</b></div><div className="mini-progress"><i style={{width:`${p.progress}%`}}/></div><span>{p.status==='completed'&&p.link?<button className="link-btn" onClick={()=>copy(p.link!)}><Copy size={14}/> Copy</button>:`${p.status}${p.error?`: ${p.error}`:''}`}</span></div>)}</div></article>}
+function Empty({title='Nothing here yet',text='Add a URL to create your first task.'}:{title?:string,text?:string}){return <div className="empty"><CircleAlert/><h3>{title}</h3><p>{text}</p></div>}
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);
