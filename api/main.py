@@ -12,7 +12,7 @@ from core.events import Event, EventType
 from core.models import Task
 from api.services import build_service
 
-app = FastAPI(title="cLOADER API", version="0.2.0")
+app = FastAPI(title="cLOADER API", version="0.2.1")
 database, repository, event_bus, task_service = build_service()
 
 
@@ -20,6 +20,17 @@ class CreateTaskRequest(BaseModel):
     url: HttpUrl
     providers: list[str] = Field(default_factory=list)
     filename: str | None = None
+
+
+class UploadResponse(BaseModel):
+    provider: str
+    status: str
+    progress: float
+    uploaded_bytes: int
+    total_bytes: int
+    speed: float
+    url: str | None = None
+    error: str | None = None
 
 
 class TaskResponse(BaseModel):
@@ -31,23 +42,19 @@ class TaskResponse(BaseModel):
     progress: float
     speed: float
     error: str | None = None
-    uploads: list[dict[str, str | None]] = Field(default_factory=list)
+    uploads: list[UploadResponse] = Field(default_factory=list)
 
 
 def task_response(task: Task) -> TaskResponse:
     return TaskResponse(
-        id=task.id,
-        url=task.source_url,
-        status=task.status.value,
-        filename=task.final_filename,
-        providers=task.selected_providers,
-        progress=task.download_progress,
-        speed=task.download_speed,
-        error=task.error,
-        uploads=[
-            {"provider": u.provider_id, "status": u.status.value, "url": u.url, "error": u.error}
-            for u in task.uploads
-        ],
+        id=task.id, url=task.source_url, status=task.status.value,
+        filename=task.final_filename, providers=task.selected_providers,
+        progress=task.download_progress, speed=task.download_speed, error=task.error,
+        uploads=[UploadResponse(
+            provider=u.provider_id, status=u.status.value, progress=u.progress,
+            uploaded_bytes=u.uploaded_bytes, total_bytes=u.total_bytes, speed=u.speed,
+            url=u.url, error=u.error,
+        ) for u in task.uploads],
     )
 
 
@@ -72,12 +79,7 @@ async def create_task(request: CreateTaskRequest) -> TaskResponse:
     unknown = [p for p in providers if p not in {"gofile", "pixeldrain"}]
     if unknown:
         raise HTTPException(status_code=400, detail=f"Unknown providers: {', '.join(unknown)}")
-    task = Task(
-        id=uuid.uuid4().hex,
-        source_url=str(request.url),
-        selected_providers=providers,
-        custom_filename=request.filename,
-    )
+    task = Task(id=uuid.uuid4().hex, source_url=str(request.url), selected_providers=providers, custom_filename=request.filename)
     await task_service.create_and_start(task)
     return task_response(task)
 
@@ -102,9 +104,8 @@ async def cancel_task(task_id: str) -> dict[str, str]:
         raise HTTPException(status_code=404, detail="Task not found")
     cancelled = await task_service.cancel(task_id)
     if not cancelled:
-        task.error = task.error or "Task is not currently running"
-        repository.save(task)
-    return {"status": "cancelled" if cancelled else task.status.value, "id": task_id}
+        return {"status": task.status.value, "id": task_id}
+    return {"status": "cancelled", "id": task_id}
 
 
 @app.websocket("/ws")
@@ -126,10 +127,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         while True:
             event = await queue.get()
             await websocket.send_json({
-                "type": event.type.value,
-                "task_id": event.task_id,
-                "data": event.data,
-                "timestamp": event.timestamp.isoformat(),
+                "type": event.type.value, "task_id": event.task_id,
+                "data": event.data, "timestamp": event.timestamp.isoformat(),
             })
     except WebSocketDisconnect:
         pass
