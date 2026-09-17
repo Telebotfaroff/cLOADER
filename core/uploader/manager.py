@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Callable
 
 from core.events import Event, EventBus, EventType
 from core.models import Task, TaskStatus, UploadResult, UploadStatus
@@ -44,7 +44,6 @@ class UploadManager:
         missing = [p for p in selected if p not in self.providers]
         if missing:
             raise ValueError(f"Unknown providers: {', '.join(missing)}")
-
         previous = {r.provider_id: r for r in task.uploads if r.status is UploadStatus.COMPLETED and r.url}
         pending = [p for p in selected if p not in previous]
         results = list(previous.values())
@@ -102,16 +101,19 @@ class UploadManager:
         result.upload_id = uploaded.upload_id
         result.error = None
 
-    def _progress_callback(self, task_id: str, provider_id: str, result: UploadResult) -> Callable[[int, int, float], Awaitable[None]]:
-        async def callback(uploaded: int, total: int, speed: float) -> None:
+    def _progress_callback(self, task_id: str, provider_id: str, result: UploadResult) -> Callable[[int, int, float], None]:
+        loop = asyncio.get_running_loop()
+
+        def callback(uploaded: int, total: int, speed: float) -> None:
             result.uploaded_bytes = max(0, uploaded)
             result.total_bytes = max(0, total)
             result.speed = max(0.0, speed)
             result.progress = (uploaded / total * 100.0) if total else 0.0
-            await self._publish(EventType.UPLOAD_PROGRESS, task_id, {
-                "provider": provider_id, "uploaded_bytes": uploaded, "total_bytes": total,
-                "progress": result.progress, "speed": result.speed,
-            })
+            if self.event_bus:
+                asyncio.run_coroutine_threadsafe(self._publish(EventType.UPLOAD_PROGRESS, task_id, {
+                    "provider": provider_id, "uploaded_bytes": uploaded, "total_bytes": total,
+                    "progress": result.progress, "speed": result.speed,
+                }), loop)
         return callback
 
     async def _publish(self, event_type: EventType, task_id: str, data: dict) -> None:
