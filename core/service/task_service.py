@@ -59,24 +59,55 @@ class TaskService:
                 task.final_filename = task.custom_filename or path.name
             self.repository.save(task)
             await self.event_bus.publish(Event(EventType.DOWNLOAD_COMPLETED, task.id, {"size": size}))
+            await self._upload_existing_file(task)
+        except asyncio.CancelledError:
+            task.status = TaskStatus.CANCELLED
+            self.repository.save(task)
+            raise
+        except Exception as exc:
+            task.status = TaskStatus.FAILED
+            task.error = str(exc) or exc.__class__.__name__
+            self.repository.save(task)
+            await self.event_bus.publish(Event(EventType.TASK_FAILED, task.id, {"error": task.error}))
+        finally:
+            self._jobs.pop(task.id, None)
 
-            task.status = TaskStatus.UPLOADING
-            self.repository.save(task)
-            summary = await self.uploader.upload_task(task)
-            task.uploads = summary.results
-            self.repository.save(task)
-            if summary.all_succeeded:
-                task.status = TaskStatus.COMPLETED
-                task.completed_at = datetime.now(timezone.utc)
-                task.file_path = None
-                await self.event_bus.publish(Event(EventType.TASK_COMPLETED, task.id, {
-                    "uploads": [{"provider": r.provider_id, "url": r.url} for r in summary.results]
-                }))
-            else:
-                task.status = TaskStatus.FAILED
-                task.error = "One or more provider uploads failed; temporary file retained for retry."
-                await self.event_bus.publish(Event(EventType.TASK_FAILED, task.id, {"error": task.error}))
-            self.repository.save(task)
+    async def _upload_existing_file(self, task: Task) -> bool:
+        task.status = TaskStatus.UPLOADING
+        task.error = None
+        self.repository.save(task)
+        summary = await self.uploader.upload_task(task)
+        task.uploads = summary.results
+        if summary.all_succeeded:
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.now(timezone.utc)
+            task.file_path = None
+            task.error = None
+            await self.event_bus.publish(Event(EventType.TASK_COMPLETED, task.id, {
+                "uploads": [{"provider": r.provider_id, "url": r.url} for r in summary.results]
+            }))
+        else:
+            task.status = TaskStatus.FAILED
+            task.error = "One or more provider uploads failed; temporary file retained for retry."
+            await self.event_bus.publish(Event(EventType.TASK_FAILED, task.id, {"error": task.error}))
+        self.repository.save(task)
+        return summary.all_succeeded
+
+    async def retry_uploads(self, task: Task) -> bool:
+        """Retry failed providers using the existing temporary file; never re-download."""
+        if task.id in self._jobs and not self._jobs[task.id].done():
+            raise RuntimeError("Task is already running")
+        if task.status is not TaskStatus.FAILED:
+            raise ValueError("Only failed tasks can be retried")
+        if not task.file_path:
+            raise FileNotFoundError("Temporary file is unavailable")
+        job = asyncio.create_task(self._retry_job(task))
+        self._jobs[task.id] = job
+        return True
+
+    async def _retry_job(self, task: Task) -> None:
+        try:
+            await self._upload_existing_file(task)
         except asyncio.CancelledError:
             task.status = TaskStatus.CANCELLED
             self.repository.save(task)
