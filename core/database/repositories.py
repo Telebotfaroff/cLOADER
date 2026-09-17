@@ -58,14 +58,16 @@ class TaskRepository:
                 ),
             )
 
+    def _uploads_for_task(self, task_id: str):
+        return self.db.connection.execute(
+            "SELECT * FROM uploads WHERE task_id = ? ORDER BY provider_id", (task_id,)
+        ).fetchall()
+
     def get(self, task_id: str) -> Task | None:
         row = self.db.connection.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if row is None:
             return None
-        uploads = self.db.connection.execute(
-            "SELECT * FROM uploads WHERE task_id = ? ORDER BY provider_id", (task_id,)
-        ).fetchall()
-        return self._from_row(row, uploads)
+        return self._from_row(row, self._uploads_for_task(task_id))
 
     def list(self, limit: int = 100) -> list[Task]:
         if limit < 1:
@@ -73,7 +75,7 @@ class TaskRepository:
         rows = self.db.connection.execute(
             "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (limit,)
         ).fetchall()
-        return [self._from_row(row) for row in rows]
+        return [self._from_row(row, self._uploads_for_task(row["id"])) for row in rows]
 
     def delete(self, task_id: str) -> bool:
         cursor = self.db.connection.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
@@ -82,8 +84,7 @@ class TaskRepository:
 
     @staticmethod
     def _from_row(row, uploads=None) -> Task:
-        if uploads is None:
-            uploads = []
+        uploads = uploads or []
         return Task(
             id=row["id"], source_url=row["source_url"],
             original_filename=row["original_filename"], custom_filename=row["custom_filename"],
