@@ -21,8 +21,11 @@ def build_service() -> tuple[Database, TaskRepository, EventBus, TaskService]:
     database = Database(data_dir / "cloader.db")
     repository = TaskRepository(database)
     event_bus = EventBus()
+
+    # GoFile uses guest uploads by default. No account or API token is required.
+    # A token is intentionally not read from the environment here.
     providers = {
-        "gofile": GofileProvider(token=os.getenv("GOFILE_TOKEN")),
+        "gofile": GofileProvider(),
         "pixeldrain": PixeldrainProvider(api_key=os.getenv("PIXELDRAIN_API_KEY")),
     }
     uploader = UploadManager(
