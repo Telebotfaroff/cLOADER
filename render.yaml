@@ -1,15 +1,17 @@
 services:
   - type: web
     name: cloader
-    runtime: python
-    buildCommand: python -m pip install -r requirements.txt && cd web && npm install && npm run build
-    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /api/health
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.6
       - key: CLOADER_DATA_DIR
         value: /var/data
+      - key: CLOADER_UPLOAD_CONCURRENCY
+        value: "2"
+      - key: CLOADER_UPLOAD_RETRIES
+        value: "2"
     disk:
       name: cloader-data
       mountPath: /var/data
