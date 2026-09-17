@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field, HttpUrl
 
-from core.events.bus import Event, EventBus
+from core.events.bus import Event, EventBus, EventType
 from core.models.task import Task, TaskStatus
-from core.uploader.manager import UploadManager
 
 app = FastAPI(title="cLOADER API", version="0.1.0")
 event_bus = EventBus()
@@ -54,12 +53,10 @@ async def health() -> dict[str, str]:
 
 @app.get("/api/providers")
 async def providers() -> dict[str, list[dict[str, str]]]:
-    return {
-        "providers": [
-            {"id": "gofile", "name": "GoFile", "kind": "file"},
-            {"id": "pixeldrain", "name": "Pixeldrain", "kind": "file"},
-        ]
-    }
+    return {"providers": [
+        {"id": "gofile", "name": "GoFile", "kind": "file"},
+        {"id": "pixeldrain", "name": "Pixeldrain", "kind": "file"},
+    ]}
 
 
 @app.post("/api/tasks", response_model=TaskResponse, status_code=201)
@@ -73,7 +70,7 @@ async def create_task(request: CreateTaskRequest) -> TaskResponse:
         custom_filename=request.filename,
     )
     tasks[task.id] = task
-    await event_bus.publish(Event.task_created(task.id, {"url": task.source_url}))
+    await event_bus.publish(Event(EventType.TASK_CREATED, task.id, {"url": task.source_url}))
     return task_response(task)
 
 
@@ -102,8 +99,13 @@ async def cancel_task(task_id: str) -> dict[str, str]:
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     await websocket.accept()
-    queue = event_bus.create_queue()
-    event_bus.add_queue(queue)
+    queue: asyncio.Queue[Event] = asyncio.Queue()
+
+    async def forward(event: Event) -> None:
+        await queue.put(event)
+
+    for event_type in EventType:
+        await event_bus.subscribe(event_type, forward)
     try:
         while True:
             event = await queue.get()
@@ -116,4 +118,5 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
-        event_bus.remove_queue(queue)
+        for event_type in EventType:
+            await event_bus.unsubscribe(event_type, forward)
