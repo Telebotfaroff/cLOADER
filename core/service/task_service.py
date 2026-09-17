@@ -101,6 +101,9 @@ class TaskService:
             raise ValueError("Only failed tasks can be retried")
         if not task.file_path:
             raise FileNotFoundError("Temporary file is unavailable")
+        task.status = TaskStatus.UPLOADING
+        task.error = None
+        self.repository.save(task)
         job = asyncio.create_task(self._retry_job(task))
         self._jobs[task.id] = job
         return True
