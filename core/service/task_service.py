@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 
 from core.database.repositories import TaskRepository
 from core.events import Event, EventBus, EventType
@@ -30,7 +31,7 @@ class TaskService:
     async def run(self, task: Task) -> None:
         try:
             task.status = TaskStatus.DOWNLOADING
-            task.started_at = task.started_at or __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+            task.started_at = task.started_at or datetime.now(timezone.utc)
             self.repository.save(task)
             await self.event_bus.publish(Event(EventType.DOWNLOAD_STARTED, task.id, {"url": task.source_url}))
 
@@ -66,7 +67,7 @@ class TaskService:
             self.repository.save(task)
             if summary.all_succeeded:
                 task.status = TaskStatus.COMPLETED
-                task.completed_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+                task.completed_at = datetime.now(timezone.utc)
                 task.file_path = None
                 await self.event_bus.publish(Event(EventType.TASK_COMPLETED, task.id, {
                     "uploads": [{"provider": r.provider_id, "url": r.url} for r in summary.results]
@@ -90,7 +91,7 @@ class TaskService:
 
     async def cancel(self, task_id: str) -> bool:
         job = self._jobs.get(task_id)
-        if job is None:
+        if job is None or job.done():
             return False
         job.cancel()
         return True
