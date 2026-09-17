@@ -44,12 +44,17 @@ class UploadManager:
         missing = [p for p in selected if p not in self.providers]
         if missing:
             raise ValueError(f"Unknown providers: {', '.join(missing)}")
-        if not selected:
-            return UploadSummary([], True, False)
-        semaphore = asyncio.Semaphore(self.max_concurrency)
-        results = await asyncio.gather(*(self._upload_one(task, p, semaphore) for p in selected))
+
+        previous = {r.provider_id: r for r in task.uploads if r.status is UploadStatus.COMPLETED and r.url}
+        pending = [p for p in selected if p not in previous]
+        results = list(previous.values())
+        if pending:
+            semaphore = asyncio.Semaphore(self.max_concurrency)
+            fresh = await asyncio.gather(*(self._upload_one(task, p, semaphore) for p in pending))
+            results.extend(fresh)
+        results.sort(key=lambda r: selected.index(r.provider_id))
         task.uploads = results
-        all_succeeded = all(r.status is UploadStatus.COMPLETED for r in results)
+        all_succeeded = len(results) == len(selected) and all(r.status is UploadStatus.COMPLETED for r in results)
         cleaned_up = False
         if all_succeeded:
             file_path.unlink(missing_ok=True)
