@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, HttpUrl
 
 from core.events import Event, EventType
-from core.models import Task
+from core.models import Task, TaskStatus
 from api.services import build_service
 
-app = FastAPI(title="cLOADER API", version="0.2.1")
+app = FastAPI(title="cLOADER API", version="0.3.0")
 database, repository, event_bus, task_service = build_service()
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 
 
 class CreateTaskRequest(BaseModel):
@@ -64,10 +67,10 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/api/providers")
-async def providers() -> dict[str, list[dict[str, str]]]:
+async def providers() -> dict[str, list[dict[str, str | bool]]]:
     return {"providers": [
-        {"id": "gofile", "name": "GoFile", "kind": "file", "configured": "true"},
-        {"id": "pixeldrain", "name": "Pixeldrain", "kind": "file", "configured": "true"},
+        {"id": "gofile", "name": "GoFile", "kind": "file", "configured": True},
+        {"id": "pixeldrain", "name": "Pixeldrain", "kind": "file", "configured": True},
     ]}
 
 
@@ -94,6 +97,19 @@ async def get_task(task_id: str) -> TaskResponse:
     task = repository.get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    return task_response(task)
+
+
+@app.post("/api/tasks/{task_id}/retry", response_model=TaskResponse)
+async def retry_task(task_id: str) -> TaskResponse:
+    task = repository.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status is not TaskStatus.FAILED:
+        raise HTTPException(status_code=409, detail="Only failed tasks can be retried")
+    if not task.file_path or not Path(task.file_path).is_file():
+        raise HTTPException(status_code=409, detail="Temporary file is no longer available; re-download is required")
+    await task_service.retry_uploads(task)
     return task_response(task)
 
 
@@ -135,3 +151,17 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     finally:
         for event_type in EventType:
             await event_bus.unsubscribe(event_type, forward)
+
+
+@app.get("/{path:path}")
+async def frontend(path: str):
+    """Serve the built React SPA without intercepting API or WebSocket routes."""
+    if not FRONTEND_DIST.is_dir():
+        raise HTTPException(status_code=404, detail="Frontend build not found")
+    root = FRONTEND_DIST.resolve()
+    requested = (root / path).resolve()
+    if not requested.is_relative_to(root):
+        raise HTTPException(status_code=404, detail="Not found")
+    if requested.is_file():
+        return FileResponse(requested)
+    return FileResponse(root / "index.html")
